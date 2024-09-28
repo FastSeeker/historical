@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+	    <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>FastFind</title>
+        <style>
+            body {
+                font-family: Arial, Helvetica, sans-serif;
+            }
+
+            iframe {
+                display: block;       /* iframes are inline by default */
+                background: #000;
+                border: none;         /* Reset default border */
+                height: 100vh;        /* Viewport-relative units */
+                width: 97vw;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- Script -->
+        <script type="text/javascript">
+            window.speechSynthesis.cancel();
+
+            // Global variables
+            var playing = false;
+            var playTimeSec = 0;
+
+            var iframe = null;
+            var timerText = null;
+            var statusText = null;
+            var ssu = new SpeechSynthesisUtterance();
+
+            var fullText = "";
+            var readingText = "";
+            var startIdx = 0;
+            var currentIdx = 0;
+
+            var toleranceRange = 100;
+
+            // Callback function for timer
+            function timeCountCallback() {
+                if (playing) {
+                    playTimeSec++;
+                    min = Math.floor(playTimeSec / 60);
+                    sec = (playTimeSec % 60);
+                    timerText.innerText = min.toString() + ":" + (sec < 10 ? "0": "") + sec;
+                }
+            }
+
+            // Callback every sec
+            setInterval(timeCountCallback, 1000);
+
+            // This function get called when a word has been read
+            function onboundaryHandler(event) {
+                currentIdx = event.charIndex;
+                //currentSen = readingText.substring(index).split(" ")[0].split(".")[0].split("\n")[0];
+                console.log("curr:", currentIdx + startIdx);
+            }
+
+            // This function get called when the audio end
+            function onendHandler(event) {
+                console.log("audio ended!");
+                playing = false;
+                enableFind();
+                statusText.style.display = "block";
+                statusText.innerText = " You lost! ";
+                window.speechSynthesis.cancel();
+                showCurrentText();
+            }
+
+            // Keydown handler (ignorer)
+            function keydownHandler(e) {
+                if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) { 
+                    e.preventDefault();
+                }
+            }
+
+            // Disable find
+            function disableFind() {
+                window.addEventListener("keydown", keydownHandler);
+            }
+
+            disableFind();
+
+            // Enable find
+            function enableFind() {
+                //window.removeEventListener("keydown", keydownHandler);
+            }
+
+            // Reset game
+            function reset() {
+                //disableFind();
+                playTimeSec = 0;
+                currentIdx = 0;
+                statusText.innerText = " You won! ";
+                statusText.style.display = "none";
+                timerText.innerText = "00:00";
+            }
+
+            // Show current text
+            function showCurrentText() {
+                currentIdx += startIdx;
+                //document.location.href = document.location.href.split(".html")[0] + ".html#:~:" + fullText.slice(currentIdx, currentIdx + 15) + "," + fullText.slice(currentIdx + 20, currentIdx + 25);
+            }
+
+            function findFirstDiffPos(a, b) {
+                var i = 0;
+                if (a === b) return -1;
+                while (a[i] === b[i]) i++;
+                return i;
+            }
+
+            function clickHandler() {
+                s = iframe.contentDocument.getSelection();
+                
+                // Stupid method for detecting if the selected word is what we are currently reading
+                // Here is how it works: whatever the player click, remove selected word/string and
+                // then get innerText of iframe, and finally compare with the original readingText to
+                // get the index of first diff between 2 strings. If that index is equal to currentIdx,
+                // then the player is selecting the right thing!
+                
+                // Save and then remove selected stuff
+                selectedString = s.anchorNode.data.slice(s.anchorOffset, s.focusOffset);
+                if (selectedString.replaceAll(" ", "") == "") return;
+
+                firstHalf = s.anchorNode.data.slice(0, s.anchorOffset);
+                secondHalf = s.anchorNode.data.slice(s.focusOffset);
+
+                // Get text before modification and then modify
+                readingText = iframe.contentDocument.body.innerText;
+                s.anchorNode.data = firstHalf + secondHalf;
+
+                // Get new innerText and then restore the original text
+                newText = iframe.contentDocument.body.innerText;
+                s.anchorNode.data = firstHalf + selectedString + secondHalf;
+
+                // Find first diff
+                diffIdx = findFirstDiffPos(readingText, newText);
+                //console.log(readingText);
+                //console.log("==================================");
+                //console.log(newText);
+                console.log("sel:", diffIdx);
+
+                // If currentIdx == diffIdx -> win!
+                if (Math.abs(currentIdx + startIdx - diffIdx) <= toleranceRange) {
+                    console.log("det:", currentIdx + startIdx, "vs", diffIdx, "with tol =", toleranceRange);
+                    win();
+                }
+            }
+
+            function randomIntFromInterval(min, max) { // min and max included 
+                return Math.floor(Math.random() * (max - min + 1) + min);
+                //return 0;
+            }
+
+            // Play
+            function startGame() {
+                playing = true;
+                //disableFind();
+                
+                // Randomly select a place to read
+                startIdx = randomIntFromInterval(0, fullText.length * 0.9); // Never start too close to the end of text
+                console.log("start:", startIdx);
+                readingText = fullText.slice(startIdx); // Start reading at startIdx
+
+                // Start reading
+                window.speechSynthesis.cancel();
+                //ssu.voice = speechSynthesis.getVoices().filter(function(voice) { return voice.name == 'Google US English'; })[0]; // You can change the voice here
+                ssu.onboundary = onboundaryHandler;
+                ssu.onend = onendHandler;
+                ssu.text = readingText;
+                window.speechSynthesis.speak(ssu);
+
+                reset();
+
+                // Add click event listener to iframe
+                iframe.contentDocument.body.removeEventListener('click', clickHandler, false);
+                iframe.contentDocument.body.addEventListener('click', clickHandler, false);
+
+                // (for mobile)
+                //iframe.contentDocument.body.removeEventListener('contextmenu', clickHandler, false);
+                //iframe.contentDocument.body.addEventListener('contextmenu', clickHandler, false);
+            }
+
+            // Win event
+            function win() {
+                playing = false;
+                statusText.style.display = "block";
+                window.speechSynthesis.cancel();
+            }
+
+            // Fetch new page from wiki API and put its content to iframe
+            function fetchNewPage() {
+                reset();
+
+                iframe.src = "about:blank";
+                fetch('https://en.wikipedia.org/api/rest_v1/page/random/html').then(v => {
+                    v.text().then(async content => {
+                        // Write HTML cont to iframe
+                        iframe.contentDocument.write(content);
+
+                        // Disable href (quick and dirty way, fix this if we can)
+                        iframe.contentDocument.body.innerHTML = iframe.contentDocument.body.innerHTML.replaceAll('href="', 'title="');
+
+                        // Extract sentences from the article
+                        //sentences = iframe.contentDocument.body.innerText.match(/(.*?(?:\.|\?|!))(?: |$)/g);
+                        fullText = iframe.contentDocument.body.innerText;
+                        //console.log(fullText);
+                    });
+                });
+            }
+        </script>
+
+        <!-- Upper panel -->
+        <div>
+            <h1 style="display: inline-block;">FastFind v0.1</h1>
+            <button onclick="fetchNewPage();" style="height:73.34px; width:73.34px; float: right;">Random</button>
+            <button onclick="onendHandler(null);" style="height:73.34px; width:73.34px; float: right;">Resign</button>
+            <button onclick="startGame();" style="height:73.34px; width:73.34px; float: right;">Play</button>
+            <h2 style="float: right;" id="timerText">00:00</h2>
+            <h2 style="float: right; display: none;" id="statusText"> You win! </h2>
+        </div>
+
+        <!-- Main iframe -->
+        <iframe id="iframe" allowtransparency="true" style="background: #FFFFFF;" src="about:blank"></iframe>
+        <script type="text/javascript">
+            // Get elements
+            iframe = document.getElementById("iframe");
+            timerText = document.getElementById("timerText");
+            statusText = document.getElementById("statusText");
+        </script>
+    </body>
+</html>
